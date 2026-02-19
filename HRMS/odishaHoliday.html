@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Odisha Holiday Calendar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <div class="max-w-7xl mx-auto p-4 md:p-6">
+    <div class="bg-white rounded-2xl shadow p-4 md:p-6">
+      <h1 class="text-2xl md:text-3xl font-bold">Odisha Holiday Calendar</h1>
+      <p class="text-sm text-slate-500 mt-1">Holiday source: <a class="text-blue-600 underline" href="https://apps.hrmsodisha.gov.in/getHolidayList.htm" target="_blank" rel="noopener">apps.hrmsodisha.gov.in/getHolidayList.htm</a></p>
+
+      <div class="mt-4 flex flex-wrap items-end gap-3">
+        <div>
+          <label class="text-sm font-medium">Year</label>
+          <select id="yearSelect" class="mt-1 border border-slate-300 rounded-lg px-3 py-2"></select>
+        </div>
+        <div>
+          <label class="text-sm font-medium">Month</label>
+          <select id="monthSelect" class="mt-1 border border-slate-300 rounded-lg px-3 py-2"></select>
+        </div>
+        <button id="yearViewBtn" class="px-4 py-2 rounded-lg bg-blue-600 text-white">Year View</button>
+        <button id="monthViewBtn" class="px-4 py-2 rounded-lg bg-slate-200 text-slate-700">Month View</button>
+        <button id="reloadBtn" class="ml-auto px-4 py-2 rounded-lg border border-slate-300">Reload Holidays</button>
+      </div>
+
+      <div id="status" class="mt-3 text-sm"></div>
+
+      <div class="mt-4 flex gap-5 items-center text-sm">
+        <div class="flex items-center gap-2"><span class="w-4 h-4 rounded bg-red-100 border border-red-300 inline-block"></span> Holiday / Sunday</div>
+        <div class="flex items-center gap-2"><span class="w-4 h-4 rounded bg-white border border-slate-300 inline-block"></span> Normal Day</div>
+      </div>
+
+      <div id="calendarContainer" class="mt-5"></div>
+      <div id="monthHolidayBox" class="mt-6 hidden"></div>
+    </div>
+  </div>
+
+<script>
+$(function () {
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  let rawHolidayData = [];
+  let holidayMap = {}; // YYYY-MM-DD -> [names]
+  let currentView = 'year';
+  let currentYear = new Date().getFullYear();
+  let currentMonth = new Date().getMonth();
+
+  function normalizeDate(ddmmyyyy) {
+    const parts = ddmmyyyy.split('-');
+    if (parts.length !== 3) return null;
+    const [dd, mm, yyyy] = parts;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+
+  function parseHolidayItem(item) {
+    const parts = item.split('->');
+    if (parts.length < 2) return null;
+    const dateText = parts[0].trim();
+    const name = parts[1].trim();
+    const type = parts[2] ? parts[2].trim() : '';
+    const isoDate = normalizeDate(dateText);
+    if (!isoDate) return null;
+    return { dateText, isoDate, name, type };
+  }
+
+  function buildHolidayMap(data) {
+    holidayMap = {};
+    data.forEach(item => {
+      const parsed = parseHolidayItem(item);
+      if (!parsed) return;
+      if (!holidayMap[parsed.isoDate]) holidayMap[parsed.isoDate] = [];
+      holidayMap[parsed.isoDate].push(parsed.name);
+    });
+  }
+
+  function isSunday(year, monthIndex, day) {
+    return new Date(year, monthIndex, day).getDay() === 0;
+  }
+
+  function getHolidayNames(year, monthIndex, day) {
+    const mm = String(monthIndex + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    const key = `${year}-${mm}-${dd}`;
+    return holidayMap[key] || [];
+  }
+
+  function isHolidayOrSunday(year, monthIndex, day) {
+    return isSunday(year, monthIndex, day) || getHolidayNames(year, monthIndex, day).length > 0;
+  }
+
+  function renderMonthGrid(year, monthIndex, compact=false) {
+    const firstDay = new Date(year, monthIndex, 1).getDay();
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    let html = '';
+
+    html += `<div class="grid grid-cols-7 gap-1 text-center ${compact ? 'text-[11px]' : 'text-sm'}">`;
+    weekdayNames.forEach(day => {
+      html += `<div class="font-semibold text-slate-600 py-1">${day}</div>`;
+    });
+
+    for (let i = 0; i < firstDay; i++) {
+      html += `<div class="h-${compact ? '8' : '10'}"></div>`;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const names = getHolidayNames(year, monthIndex, day);
+      const marked = isHolidayOrSunday(year, monthIndex, day);
+      const title = names.length ? names.join(' | ') : (isSunday(year, monthIndex, day) ? 'Sunday' : '');
+      html += `
+        <div title="${title.replace(/"/g, '&quot;')}" class="${compact ? 'h-8' : 'h-10'} flex items-center justify-center border rounded ${marked ? 'bg-red-100 text-red-700 font-semibold border-red-300' : 'bg-white border-slate-200'}">
+          ${day}
+        </div>`;
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderYearView(year) {
+    let html = `<div class="grid md:grid-cols-3 gap-4">`;
+    for (let m = 0; m < 12; m++) {
+      html += `
+        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50">
+          <h3 class="font-semibold text-center mb-2">${monthNames[m]} ${year}</h3>
+          ${renderMonthGrid(year, m, true)}
+        </div>`;
+    }
+    html += `</div>`;
+    $('#monthHolidayBox').addClass('hidden').empty();
+    $('#calendarContainer').html(html);
+  }
+
+  function renderMonthHolidayBox(year, monthIndex) {
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const rows = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const names = getHolidayNames(year, monthIndex, day);
+      if (isSunday(year, monthIndex, day)) rows.push({ day, name: 'Sunday' });
+      names.forEach(name => rows.push({ day, name }));
+    }
+
+    let html = `<div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+      <h3 class="font-semibold mb-2">Holidays in ${monthNames[monthIndex]} ${year}</h3>`;
+
+    if (!rows.length) {
+      html += `<p class="text-sm text-slate-500">No holidays found for this month.</p>`;
+    } else {
+      html += `<div class="max-h-64 overflow-auto"><table class="w-full text-sm"><thead><tr class="text-left border-b"><th class="py-2">Date</th><th class="py-2">Holiday</th></tr></thead><tbody>`;
+      rows.forEach(r => {
+        html += `<tr class="border-b border-slate-100"><td class="py-1 pr-3">${String(r.day).padStart(2, '0')}-${String(monthIndex + 1).padStart(2, '0')}-${year}</td><td class="py-1">${r.name}</td></tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+    html += `</div>`;
+
+    $('#monthHolidayBox').removeClass('hidden').html(html);
+  }
+
+  function renderMonthView(year, monthIndex) {
+    const html = `
+      <div class="border border-slate-200 rounded-xl p-4 bg-slate-50">
+        <h3 class="text-lg font-semibold text-center mb-3">${monthNames[monthIndex]} ${year}</h3>
+        ${renderMonthGrid(year, monthIndex, false)}
+      </div>
+    `;
+    $('#calendarContainer').html(html);
+    renderMonthHolidayBox(year, monthIndex);
+  }
+
+  function render() {
+    if (currentView === 'year') renderYearView(currentYear);
+    else renderMonthView(currentYear, currentMonth);
+  }
+
+  function setView(view) {
+    currentView = view;
+    if (view === 'year') {
+      $('#yearViewBtn').removeClass('bg-slate-200 text-slate-700').addClass('bg-blue-600 text-white');
+      $('#monthViewBtn').removeClass('bg-blue-600 text-white').addClass('bg-slate-200 text-slate-700');
+    } else {
+      $('#monthViewBtn').removeClass('bg-slate-200 text-slate-700').addClass('bg-blue-600 text-white');
+      $('#yearViewBtn').removeClass('bg-blue-600 text-white').addClass('bg-slate-200 text-slate-700');
+    }
+    render();
+  }
+
+  function populateSelectors() {
+    const years = new Set();
+    rawHolidayData.forEach(item => {
+      const parsed = parseHolidayItem(item);
+      if (!parsed) return;
+      years.add(Number(parsed.isoDate.slice(0, 4)));
+    });
+
+    const sortedYears = [...years].sort((a, b) => a - b);
+    if (!sortedYears.length) sortedYears.push(new Date().getFullYear());
+
+    const ySel = $('#yearSelect').empty();
+    sortedYears.forEach(y => ySel.append(`<option value="${y}">${y}</option>`));
+
+    const nowYear = new Date().getFullYear();
+    currentYear = sortedYears.includes(nowYear) ? nowYear : sortedYears[sortedYears.length - 1];
+    ySel.val(currentYear);
+
+    const mSel = $('#monthSelect').empty();
+    monthNames.forEach((m, i) => mSel.append(`<option value="${i}">${m}</option>`));
+    currentMonth = new Date().getMonth();
+    mSel.val(currentMonth);
+  }
+
+  function loadHolidays() {
+    $('#status').removeClass('text-red-600').addClass('text-slate-500').text('Loading holidays...');
+    return $.ajax({
+      url: 'https://apps.hrmsodisha.gov.in/getHolidayList.htm',
+      method: 'GET',
+      dataType: 'json'
+    }).done(function (data) {
+      if (!Array.isArray(data)) throw new Error('Unexpected response format.');
+      rawHolidayData = data;
+      buildHolidayMap(rawHolidayData);
+      populateSelectors();
+      $('#status').removeClass('text-red-600').addClass('text-green-700').text(`Loaded ${rawHolidayData.length} holiday entries.`);
+      render();
+    }).fail(function (xhr, textStatus, err) {
+      $('#status').removeClass('text-slate-500').addClass('text-red-600').text(`Failed to load holidays from API (${textStatus}). This may be due to CORS restrictions in browser.`);
+      rawHolidayData = [];
+      holidayMap = {};
+      populateSelectors();
+      render();
+      console.error('Holiday API error:', err || textStatus);
+    });
+  }
+
+  $('#yearSelect').on('change', function () {
+    currentYear = Number($(this).val());
+    render();
+  });
+
+  $('#monthSelect').on('change', function () {
+    currentMonth = Number($(this).val());
+    if (currentView !== 'month') setView('month');
+    else render();
+  });
+
+  $('#yearViewBtn').on('click', function () { setView('year'); });
+  $('#monthViewBtn').on('click', function () { setView('month'); });
+  $('#reloadBtn').on('click', loadHolidays);
+
+  loadHolidays();
+});
+</script>
+</body>
+</html>
